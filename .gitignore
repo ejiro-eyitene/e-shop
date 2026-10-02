@@ -31,3 +31,5 @@ serve.log
 dev.log
 push.log
 seed.log
+commitmsg.tmp
+*.err
