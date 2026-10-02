@@ -2,8 +2,24 @@ import Link from "next/link";
 import { auth, signOut } from "@/auth";
 import { CartBadge } from "./CartBadge";
 
+/**
+ * Reads the session, tolerating a database outage.
+ *
+ * `auth()` queries the sessions table on every render (the root layout
+ * includes this Navbar), so an unhandled failure here takes down every route
+ * in the app — not just authentication.
+ */
+async function safeAuth() {
+  try {
+    return await auth();
+  } catch (error) {
+    console.error("Session lookup failed:", error);
+    return null;
+  }
+}
+
 export async function Navbar() {
-  const session = await auth();
+  const session = await safeAuth();
 
   return (
     <div className="navbar bg-base-100 shadow-sm sticky top-0 z-50">
