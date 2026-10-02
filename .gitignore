@@ -33,3 +33,7 @@ push.log
 seed.log
 commitmsg.tmp
 *.err
+.env*
+
+# Vercel CLI adds `.env*`; keep `.env.example` tracked as the documented template.
+!.env.example

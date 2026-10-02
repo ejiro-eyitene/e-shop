@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCart } from "@/components/cart/CartProvider";
 import { naira } from "@/lib/formatters";
+import { DELIVERY_TYPES } from "@/lib/shipping";
 
 export default function CartPage() {
   const { items, itemCount, subtotalInKobo, setQuantity, removeItem } = useCart();
@@ -111,7 +112,7 @@ export default function CartPage() {
             </div>
             <div className="flex justify-between text-sm text-base-content/70">
               <span>Delivery</span>
-              <span>Calculated at checkout</span>
+              <span>From {naira(DELIVERY_TYPES[0].feeInKobo)}</span>
             </div>
             <div className="divider my-1" />
             <div className="flex justify-between font-bold text-lg">

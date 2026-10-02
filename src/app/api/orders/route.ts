@@ -5,12 +5,25 @@ import { db } from "@/db";
 import { orderItems, orders, products, users } from "@/db/schema";
 import { auth } from "@/auth";
 import { initializePayment } from "@/lib/paystack";
+import {
+  DEFAULT_DELIVERY_TYPE,
+  NIGERIAN_STATES,
+  deliveryFeeInKobo,
+  getDeliveryType,
+} from "@/lib/shipping";
 
 const CheckoutSchema = z.object({
   email: z.string().email("A valid email is required for your receipt."),
   customerName: z.string().min(1),
   phone: z.string().min(1),
+  state: z.string().min(1, "Select a delivery state."),
+  city: z.string().min(1),
   shippingAddress: z.string().min(1),
+  deliveryNotes: z.string().max(500).optional().default(""),
+  deliveryType: z.string().min(1).default(DEFAULT_DELIVERY_TYPE),
+  // Recorded for the receipt and fulfilment team; Paystack hosts all three
+  // behind one redirect, so the chosen channel does not alter this flow.
+  paymentType: z.enum(["card", "bank", "ussd"]).default("card"),
   items: z
     .array(
       z.object({
@@ -39,7 +52,35 @@ export async function POST(req: Request) {
     );
   }
 
-  const { email, customerName, phone, shippingAddress, items } = parsed.data;
+  const { items } = parsed.data;
+  const {
+    email,
+    customerName,
+    phone,
+    state,
+    city,
+    shippingAddress,
+    deliveryNotes,
+    deliveryType,
+    paymentType,
+  } = parsed.data;
+
+  // Guard the two values that must agree with the server's own list, so a
+  // hand-crafted request cannot label a Lagos order as shipping to Antarctica.
+  if (!NIGERIAN_STATES.includes(state)) {
+    return NextResponse.json(
+      { error: "Select a valid delivery state." },
+      { status: 400 },
+    );
+  }
+
+  const delivery = getDeliveryType(deliveryType);
+  if (!delivery) {
+    return NextResponse.json(
+      { error: "Select a valid delivery method." },
+      { status: 400 },
+    );
+  }
 
   // Prices MUST be read from the database — never trust the request body.
   const productIds = [...new Set(items.map((i) => i.productId))];
@@ -72,10 +113,13 @@ export async function POST(req: Request) {
     }
   }
 
-  const totalInKobo = items.reduce(
-    (sum, i) => sum + i.quantity * priceById.get(i.productId)!.priceInKobo,
-    0,
-  );
+  // Delivery fee is re-derived here, never read from the request body.
+const subtotalInKobo = items.reduce(
+  (sum, i) => sum + i.quantity * priceById.get(i.productId)!.priceInKobo,
+  0,
+);
+const deliveryChargeInKobo = deliveryFeeInKobo(deliveryType);
+const totalInKobo = subtotalInKobo + deliveryChargeInKobo;
 
   const reference = `order_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
 
@@ -90,7 +134,18 @@ export async function POST(req: Request) {
       totalInKobo,
       status: "pending",
       paystackReference: reference,
-      shippingAddress: JSON.stringify({ phone, shippingAddress }),
+      shippingAddress: JSON.stringify({
+        phone,
+        customerName,
+        state,
+        city,
+        shippingAddress,
+        deliveryNotes,
+        deliveryType,
+        paymentType,
+        subtotalInKobo,
+        deliveryChargeInKobo,
+      }),
     })
     .returning({ id: orders.id });
 
@@ -116,6 +171,9 @@ export async function POST(req: Request) {
     orderId: order!.id,
     reference,
     authorizationUrl: payment.authorization_url,
+    subtotalInKobo,
+    deliveryChargeInKobo,
+    totalInKobo,
   });
 }
 

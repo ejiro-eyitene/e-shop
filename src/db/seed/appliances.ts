@@ -66,7 +66,7 @@ export const applianceProducts: DemoProduct[] = [
     stock: 7,
     category: "Home Appliances",
     imageUrl:
-      "https://images.unsplash.com/photo-1594385208974-2e75f8d7bb48?w=800&q=80",
+      "https://images.unsplash.com/photo-1564940735784-b15466e8dc09?w=800&q=80",
   },
   {
     slug: "bosch-electric-kettle",

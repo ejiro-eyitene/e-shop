@@ -4,6 +4,14 @@ import { useState } from "react";
 import Link from "next/link";
 import { useCart } from "@/components/cart/CartProvider";
 import { naira } from "@/lib/formatters";
+import {
+  DEFAULT_DELIVERY_TYPE,
+  DELIVERY_TYPES,
+  NIGERIAN_STATES,
+  PAYMENT_TYPES,
+  type DeliveryTypeId,
+  type PaymentTypeId,
+} from "@/lib/shipping";
 
 export default function CheckoutPage() {
   const { items, subtotalInKobo, clear } = useCart();
@@ -11,9 +19,20 @@ export default function CheckoutPage() {
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
+  const [state, setState] = useState("");
+  const [city, setCity] = useState("");
   const [address, setAddress] = useState("");
+  const [deliveryNotes, setDeliveryNotes] = useState("");
+  const [deliveryType, setDeliveryType] = useState<DeliveryTypeId>(
+    DEFAULT_DELIVERY_TYPE,
+  );
+  const [paymentType, setPaymentType] = useState<PaymentTypeId>("card");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  const selectedDelivery =
+    DELIVERY_TYPES.find((d) => d.id === deliveryType) ?? DELIVERY_TYPES[0];
+  const totalInKobo = subtotalInKobo + selectedDelivery.feeInKobo;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -28,7 +47,12 @@ export default function CheckoutPage() {
           email,
           customerName: name,
           phone,
+          state,
+          city,
           shippingAddress: address,
+          deliveryNotes,
+          deliveryType,
+          paymentType,
           items: items.map((i) => ({
             productId: i.productId,
             quantity: i.quantity,
@@ -76,7 +100,7 @@ export default function CheckoutPage() {
       >
         <div className="lg:col-span-2 card bg-base-100 shadow-sm">
           <div className="card-body space-y-4">
-            <h2 className="card-title">Delivery details</h2>
+            <h2 className="card-title">Contact information</h2>
 
             {error && (
               <div className="alert alert-error">
@@ -119,19 +143,140 @@ export default function CheckoutPage() {
                 onChange={(e) => setPhone(e.target.value)}
                 placeholder="0803 000 0000"
               />
+              <p className="label">Our rider will call this number on delivery.</p>
             </fieldset>
 
+            <div className="divider my-1" />
+            <h3 className="card-title text-lg">Delivery information</h3>
+
+            <div className="grid sm:grid-cols-2 gap-4">
+              <fieldset className="fieldset">
+                <legend className="fieldset-legend">State</legend>
+                <select
+                  required
+                  className="select w-full"
+                  value={state}
+                  onChange={(e) => setState(e.target.value)}
+                >
+                  <option value="" disabled>
+                    Select a state
+                  </option>
+                  {NIGERIAN_STATES.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+              </fieldset>
+
+              <fieldset className="fieldset">
+                <legend className="fieldset-legend">City</legend>
+                <input
+                  type="text"
+                  required
+                  className="input w-full"
+                  value={city}
+                  onChange={(e) => setCity(e.target.value)}
+                  placeholder="Lekki"
+                />
+              </fieldset>
+            </div>
+
             <fieldset className="fieldset">
-              <legend className="fieldset-legend">Shipping address</legend>
+              <legend className="fieldset-legend">Street address</legend>
               <textarea
                 required
                 className="textarea w-full"
                 rows={3}
                 value={address}
                 onChange={(e) => setAddress(e.target.value)}
-                placeholder="Street, city, state"
+                placeholder="12 Admiralty Way, near the roundabout"
               />
             </fieldset>
+
+            <fieldset className="fieldset">
+              <legend className="fieldset-legend">
+                Delivery notes{" "}
+                <span className="text-base-content/40">(optional)</span>
+              </legend>
+              <textarea
+                className="textarea w-full"
+                rows={2}
+                value={deliveryNotes}
+                onChange={(e) => setDeliveryNotes(e.target.value)}
+                placeholder="Landmark, gate colour, best time to deliver"
+              />
+            </fieldset>
+
+            <div className="divider my-1" />
+            <h3 className="card-title text-lg">How should we deliver?</h3>
+
+            <div className="space-y-3">
+              {DELIVERY_TYPES.map((d) => (
+                <label
+                  key={d.id}
+                  className={`flex items-start gap-3 rounded-lg border p-4 cursor-pointer transition-colors ${
+                    deliveryType === d.id
+                      ? "border-primary bg-primary/5"
+                      : "border-base-300 hover:border-base-content/30"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="deliveryType"
+                    className="radio radio-primary radio-sm mt-1"
+                    value={d.id}
+                    checked={deliveryType === d.id}
+                    onChange={() => setDeliveryType(d.id)}
+                  />
+                  <span className="flex-1 min-w-0">
+                    <span className="flex justify-between gap-2">
+                      <span className="font-semibold">{d.label}</span>
+                      <span className="font-semibold whitespace-nowrap">
+                        {naira(d.feeInKobo)}
+                      </span>
+                    </span>
+                    <span className="block text-sm text-base-content/60">
+                      {d.description} · {d.eta}
+                    </span>
+                  </span>
+                </label>
+              ))}
+            </div>
+
+            <div className="divider my-1" />
+            <h3 className="card-title text-lg">Payment type</h3>
+
+            <div className="space-y-3">
+              {PAYMENT_TYPES.map((p) => (
+                <label
+                  key={p.id}
+                  className={`flex items-center gap-3 rounded-lg border p-4 cursor-pointer transition-colors ${
+                    paymentType === p.id
+                      ? "border-primary bg-primary/5"
+                      : "border-base-300 hover:border-base-content/30"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="paymentType"
+                    className="radio radio-primary radio-sm"
+                    value={p.id}
+                    checked={paymentType === p.id}
+                    onChange={() => setPaymentType(p.id)}
+                  />
+                  <span className="text-xl" aria-hidden>
+                    {p.icon}
+                  </span>
+                  <span className="flex-1 min-w-0">
+                    <span className="block font-semibold">{p.label}</span>
+                    <span className="block text-sm text-base-content/60">
+                      {p.description}
+                    </span>
+                  </span>
+                </label>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -151,9 +296,23 @@ export default function CheckoutPage() {
               ))}
             </ul>
             <div className="divider my-1" />
+            <div className="flex justify-between text-sm">
+              <span className="text-base-content/70">Subtotal</span>
+              <span>{naira(subtotalInKobo)}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-base-content/70">
+                {selectedDelivery.label}
+              </span>
+              <span>{naira(selectedDelivery.feeInKobo)}</span>
+            </div>
+            <p className="text-xs text-base-content/50 -mt-1">
+              Arrives in {selectedDelivery.eta}
+            </p>
+            <div className="divider my-1" />
             <div className="flex justify-between font-bold text-lg">
               <span>Total</span>
-              <span className="text-primary">{naira(subtotalInKobo)}</span>
+              <span className="text-primary">{naira(totalInKobo)}</span>
             </div>
 
             <button
@@ -172,7 +331,8 @@ export default function CheckoutPage() {
             </button>
 
             <p className="text-xs text-base-content/50 text-center">
-              You will be redirected to Paystack to complete payment securely.
+              {PAYMENT_TYPES.find((p) => p.id === paymentType)?.label} · You
+              will be redirected to Paystack to complete payment securely.
             </p>
           </div>
         </div>
