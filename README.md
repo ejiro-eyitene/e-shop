@@ -227,6 +227,43 @@ the variables are guaranteed to exist before any application module evaluates.
 already exist — and some shells/CI define `AUTH_GOOGLE_ID`, `AUTH_SECRET` and
 friends as empty strings, which silently breaks OAuth.
 
+## Troubleshooting
+
+### The catalogue is empty / "Failed query" in the console
+
+**Cause (most likely): broken IPv6 on the current network.** Some routers,
+VPNs and mobile hotspots advertise IPv6 addresses that are not actually
+routable. Node races IPv4 and IPv6 at once ("happy eyeballs"), latches onto the
+dead IPv6 address, and every request to Neon times out — even though a working
+IPv4 address was available.
+
+`.npmrc` already sets `node-options=--no-network-family-autoselection`, which
+forces IPv4-first resolution and fixes it. If you ever see this again, either:
+
+- confirm `.npmrc` is still present, or
+- fix IPv6 on the machine (router settings, VPN, or adapter), then delete
+  `.npmrc`
+
+Quick check:
+
+```bash
+npm run db:seed     # prints the product count if the DB is reachable
+```
+
+### Error handling
+
+`dbUnavailable()` in `src/lib/dbFallback.ts` recognises connection failures and
+lets the storefront degrade to an empty catalogue instead of a 500. It walks
+`error.cause`, `error.sourceError` (how Neon nests transport errors) and
+own enumerable properties, because `JSON.stringify(new Error(...))` returns
+`"{}"` and hides the real message.
+
+Run its tests with:
+
+```bash
+npx tsx scripts/test-db-fallback.ts
+```
+
 ## Notes and limitations
 
 - **Guest checkout is supported.** `orders.user_id` is non-null, so guest
