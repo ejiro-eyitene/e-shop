@@ -86,7 +86,9 @@ async function main() {
         "   for authorized recipients. A real (verified) sending domain fixes it.",
     );
   } else {
-    console.log("\n⚠  No terminal event yet — check back in a minute.");
+    console.log("\n⚠  No terminal event after ~100s. Check manually:");
+    console.log(`   curl -u "api:$apiKey" \\`);
+    console.log(`     https://api.mailgun.net/v3/${domain}/events?limit=5`);
   }
 }
 
@@ -103,8 +105,11 @@ type EventItem = {
 };
 
 async function waitForDelivery(messageId: string): Promise<string> {
-  for (let attempt = 0; attempt < 8; attempt++) {
-    await new Promise((r) => setTimeout(r, 4000));
+  // Sandbox domains get filtered intermittently by Gmail, and Mailgun can
+  // take ~60s to publish the terminal event, so poll generously rather than
+  // declaring failure too early.
+  for (let attempt = 0; attempt < 20; attempt++) {
+    await new Promise((r) => setTimeout(r, 5000));
 
     const res = await fetch(
       `https://api.mailgun.net/v3/${domain}/events?limit=20`,
