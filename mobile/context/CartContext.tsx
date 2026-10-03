@@ -4,6 +4,7 @@ import React, {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
@@ -43,13 +44,7 @@ type CartContextValue = {
   ) => Promise<void>;
   setQuantity: (productId: number, quantity: number) => Promise<void>;
   removeItem: (productId: number) => Promise<void>;
-  /** Pulls the server cart into state; used after sign-in and merge. */
-  refreshFromServer: (token: string) => Promise<void>;
-  /**
-   * Folds a guest cart into the newly signed-in user's server cart and adopts
-   * the result as the active cart, clearing the local guest copy.
-   */
-  replaceWithServerCart: (token: string) => Promise<void>;
+  /** Wipes the local guest cart, e.g. from the account screen. */
   clearLocalCart: () => Promise<void>;
 };
 
@@ -61,20 +56,57 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Load the right cart whenever the shopper's auth state changes.
+  // Tracks which token has already had its guest cart merged. Without this the
+  // merge would re-run on every render of the token-bearing app, re-posting
+  // the same guest items and inflating quantities.
+  const mergedFor = useRef<string | null>(null);
+
+  /**
+   * Load the active cart, and fold in the guest cart the first time a token
+   * appears.
+   *
+   * The merge lives here rather than in AuthProvider because this provider is
+   * nested inside it: AuthProvider cannot use useCart() without rendering
+   * before any cart exists (and without creating a require cycle).
+   */
   useEffect(() => {
     let active = true;
 
     (async () => {
       setLoading(true);
       try {
-        if (token) {
-          const cart = await fetchCart(token);
-          if (active) setItems(cart.items);
-        } else {
+        if (!token) {
           const guest = await readGuestCart();
           if (active) setItems(guestToLines(guest));
+          mergedFor.current = null;
+          return;
         }
+
+        // First sign-in with guest items waiting: merge, then show the result.
+        if (mergedFor.current !== token) {
+          const guest = await readGuestCart();
+          if (guest.length > 0) {
+            const merged = await mergeGuestCart(
+              token,
+              guest.map((g) => ({
+                productId: g.productId,
+                quantity: g.quantity,
+              })),
+            );
+            await clearGuestCart();
+            if (!active) return;
+            setItems(merged.items);
+            mergedFor.current = token;
+            setError(null);
+            setLoading(false);
+            return;
+          }
+          // Nothing to merge: mark it done so we only check once per token.
+          mergedFor.current = token;
+        }
+
+        const cart = await fetchCart(token);
+        if (active) setItems(cart.items);
         if (active) setError(null);
       } catch (err) {
         if (!active) return;
@@ -90,26 +122,6 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       active = false;
     };
   }, [token]);
-
-  const refreshFromServer = useCallback(async (authToken: string) => {
-    const cart = await fetchCart(authToken);
-    setItems(cart.items);
-  }, []);
-
-  const replaceWithServerCart = useCallback(
-    async (authToken: string) => {
-      // Merge whatever is sitting in local storage into the account, then adopt
-      // the merged result as the live cart.
-      const guest = await readGuestCart();
-      const result = await mergeGuestCart(
-        authToken,
-        guest.map((g) => ({ productId: g.productId, quantity: g.quantity })),
-      );
-      setItems(result.items);
-      await clearGuestCart();
-    },
-    [],
-  );
 
   const addItem = useCallback<CartContextValue["addItem"]>(
     async (product, quantity = 1) => {
@@ -190,8 +202,6 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       addItem,
       setQuantity,
       removeItem,
-      refreshFromServer,
-      replaceWithServerCart,
       clearLocalCart,
     }),
     [
@@ -201,8 +211,6 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       addItem,
       setQuantity,
       removeItem,
-      refreshFromServer,
-      replaceWithServerCart,
       clearLocalCart,
     ],
   );

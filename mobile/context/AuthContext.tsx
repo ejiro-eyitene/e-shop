@@ -11,13 +11,8 @@ import React, {
 } from "react";
 
 import { API_URL, exchangeCodeForToken, type AuthUser } from "../lib/api";
-import {
-  clearSession,
-  getValidSession,
-  saveSession,
-} from "../lib/secureSession";
-import { clearGuestCart, readGuestCart } from "../lib/guestCart";
-import { useCart } from "./CartContext";
+import { clearSession, getValidSession, saveSession } from "../lib/secureSession";
+import { clearGuestCart } from "../lib/guestCart";
 
 // Lets the browser tab close itself once sign-in finishes.
 WebBrowser.maybeCompleteAuthSession();
@@ -42,7 +37,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [signingIn, setSigningIn] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
-  const { replaceWithServerCart } = useCart();
+
+  // NOTE: this provider deliberately does not use useCart(). CartProvider is
+  // nested inside it (the cart needs the token), so reaching back into the
+  // cart here would render before any cart exists and also creates a require
+  // cycle. The guest->account merge is driven by CartContext reacting to a
+  // new token instead.
 
   // Restore any persisted session on cold start.
   useEffect(() => {
@@ -94,13 +94,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setToken(session.token);
       setUser(session.user);
 
-      // Fold anything the shopper added as a guest into their server cart.
-      // replaceWithServerCart clears the local copy once merged.
-      const guestItems = await readGuestCart();
-      if (guestItems.length > 0) {
-        await replaceWithServerCart(session.token);
-      }
-
+      // Any guest cart is merged by CartContext, which watches for the token
+      // appearing and posts it to /api/cart/merge. Doing it here instead would
+      // mean reaching into the cart from inside this provider.
       router.replace("/(tabs)");
     } catch (err) {
       setError(
@@ -111,7 +107,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setSigningIn(false);
     }
-  }, [router, replaceWithServerCart]);
+  }, [router]);
 
   const signOut = useCallback(async () => {
     await clearSession();
