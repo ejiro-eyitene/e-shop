@@ -1,0 +1,9 @@
+# The Expo app is a separate project with its own dependencies and TypeScript
+# config; it is not part of the Next.js build.
+#
+# The leading slash anchors this to the project root. Vercel's ignore matcher
+# treats a bare "mobile" (or even "./mobile") as matching ANY path segment
+# called mobile -- which silently dropped src/app/api/mobile/ and
+# src/app/mobile/ from the deployment, breaking the native auth endpoints.
+/mobile
+.vercel

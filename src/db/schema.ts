@@ -128,6 +128,69 @@ export const orderItems = pgTable("order_items", {
   unitPriceInKobo: integer("unit_price_in_kobo").notNull(),
 });
 
+export const cartItems = pgTable(
+  "cart_items",
+  {
+    id: serial("id").primaryKey(),
+    userId: varchar("user_id", { length: 255 })
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    productId: integer("product_id")
+      .notNull()
+      .references(() => products.id, { onDelete: "cascade" }),
+    quantity: integer("quantity").notNull().default(1),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  // One row per product per user: a repeat POST bumps the quantity instead of
+  // creating a duplicate line.
+  (t) => [
+    uniqueIndex("cart_items_user_product_idx").on(t.userId, t.productId),
+    index("cart_items_user_idx").on(t.userId),
+  ],
+);
+
+export const cartItemsRelations = relations(cartItems, ({ one }) => ({
+  user: one(users, { fields: [cartItems.userId], references: [users.id] }),
+  product: one(products, { fields: [cartItems.productId], references: [products.id] }),
+}));
+
+export const usersRelations = relations(users, ({ many }) => ({
+  cartItems: many(cartItems),
+  orders: many(orders),
+}));
+
+/**
+ * One-time codes that let a native app claim a web session.
+ *
+ * The browser tab that completes Google sign-in holds an httpOnly cookie that
+ * React Native cannot read, and cookies do not survive across the auth session
+ * on Android. So the web page mints a short-lived single-use code and hands it
+ * to the app through the redirect URL; the app exchanges it for a bearer
+ * token. Using a one-time code rather than the token itself keeps the token out
+ * of URLs, where it could leak via logs or browser history.
+ */
+export const mobileAuthCodes = pgTable(
+  "mobile_auth_codes",
+  {
+    code: varchar("code", { length: 64 }).primaryKey(),
+    userId: varchar("user_id", { length: 255 })
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    // Set the moment the code is redeemed, so a replay finds nothing to claim.
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index("mobile_auth_codes_user_idx").on(t.userId)],
+);
+
 export const ordersRelations = relations(orders, ({ one, many }) => ({
   user: one(users, { fields: [orders.userId], references: [users.id] }),
   items: many(orderItems),
