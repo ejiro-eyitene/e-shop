@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { eq, inArray } from "drizzle-orm";
+import { desc, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { orderItems, orders, products, users } from "@/db/schema";
 import { auth } from "@/auth";
+import { bearerFrom, verifyMobileToken } from "@/lib/mobileAuth";
 import { initializePayment } from "@/lib/paystack";
 import {
   DEFAULT_DELIVERY_TYPE,
@@ -193,4 +194,83 @@ async function ensureUser(email: string, name: string): Promise<string> {
     .returning({ id: users.id });
 
   return created!.id;
+}
+
+/**
+ * Order history for the signed-in shopper.
+ *
+ * Mirrors what the web /orders page shows, so the same account sees the same
+ * orders in both places. Scoped strictly to the authenticated user id, so one
+ * account can never read another's orders.
+ */
+export async function GET(req: Request) {
+  const user = await verifyMobileToken(bearerFrom(req));
+  if (!user) {
+    return NextResponse.json(
+      { error: "Sign in to view your orders." },
+      { status: 401 },
+    );
+  }
+
+  try {
+    const list = await db
+      .select({
+        id: orders.id,
+        totalInKobo: orders.totalInKobo,
+        status: orders.status,
+        reference: orders.paystackReference,
+        createdAt: orders.createdAt,
+      })
+      .from(orders)
+      .where(eq(orders.userId, user.id))
+      .orderBy(desc(orders.createdAt));
+
+    const ids = list.map((o) => o.id);
+    const lines = ids.length
+      ? await db
+          .select({
+            orderId: orderItems.orderId,
+            quantity: orderItems.quantity,
+            unitPriceInKobo: orderItems.unitPriceInKobo,
+            name: products.name,
+            slug: products.slug,
+          })
+          .from(orderItems)
+          .innerJoin(products, eq(orderItems.productId, products.id))
+          .where(inArray(orderItems.orderId, ids))
+      : [];
+
+    const byOrder = new Map<number, typeof lines>();
+    for (const line of lines) {
+      const bucket = byOrder.get(line.orderId);
+      if (bucket) bucket.push(line);
+      else byOrder.set(line.orderId, [line]);
+    }
+
+    return NextResponse.json(
+      {
+        orders: list.map((o) => ({
+          id: o.id,
+          totalInKobo: o.totalInKobo,
+          status: o.status,
+          reference: o.reference,
+          createdAt: o.createdAt,
+          items: (byOrder.get(o.id) ?? []).map((l) => ({
+            name: l.name,
+            slug: l.slug,
+            quantity: l.quantity,
+            unitPriceInKobo: l.unitPriceInKobo,
+            lineTotalInKobo: l.quantity * l.unitPriceInKobo,
+          })),
+        })),
+      },
+      { headers: { "Cache-Control": "no-store" } },
+    );
+  } catch (error) {
+    console.error("Order history failed:", error);
+    return NextResponse.json(
+      { error: "Could not load your orders." },
+      { status: 500 },
+    );
+  }
 }
