@@ -8,6 +8,8 @@
 export const API_URL =
   process.env.EXPO_PUBLIC_API_URL ?? "https://e-shop-alpha-ashy.vercel.app";
 
+import type { DeliveryTypeId, PaymentTypeId } from "./shipping";
+
 export type Product = {
   id: number;
   slug: string;
@@ -185,5 +187,72 @@ export function exchangeCodeForToken(
   return request("/api/mobile/token", {
     method: "POST",
     body: { code },
+  });
+}
+
+export type OrderLine = {
+  name: string;
+  slug: string;
+  quantity: number;
+  unitPriceInKobo: number;
+  lineTotalInKobo: number;
+};
+
+export type Order = {
+  id: number;
+  totalInKobo: number;
+  status: "pending" | "paid" | "failed" | "refunded";
+  reference: string | null;
+  createdAt: string;
+  items: OrderLine[];
+};
+
+/** Order history for the signed-in shopper. Requires a token. */
+export function fetchOrders(token: string): Promise<{ orders: Order[] }> {
+  return request<{ orders: Order[] }>("/api/orders", { token });
+}
+
+/**
+ * Placeholder fields plus the cart contents.
+ *
+ * `token` is omitted for guests: the API falls back to an account keyed by the
+ * email, so a guest can check out and still receive their receipt.
+ */
+export type CheckoutInput = {
+  email: string;
+  customerName: string;
+  phone: string;
+  state: string;
+  city: string;
+  shippingAddress: string;
+  deliveryNotes?: string;
+  deliveryType: DeliveryTypeId;
+  paymentType: PaymentTypeId;
+  items: { productId: number; quantity: number }[];
+};
+
+export type CheckoutResult = {
+  orderId: number;
+  reference: string;
+  authorizationUrl: string;
+  subtotalInKobo: number;
+  deliveryChargeInKobo: number;
+  totalInKobo: number;
+};
+
+/**
+ * Creates the order and returns Paystack's authorisation URL.
+ *
+ * Prices are recomputed server-side, so the totals returned here are
+ * authoritative even if the cart changed since it was loaded.
+ */
+export function createOrder(
+  input: CheckoutInput,
+  token?: string | null,
+): Promise<CheckoutResult> {
+  return request<CheckoutResult>("/api/orders", {
+    method: "POST",
+    token,
+    body: input,
   });
 }

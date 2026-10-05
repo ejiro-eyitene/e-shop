@@ -1,3 +1,4 @@
+import { router } from "expo-router";
 import React from "react";
 import {
   ActivityIndicator,
@@ -64,8 +65,15 @@ export default function AccountScreen() {
           </View>
 
           <Pressable
+            onPress={() => router.push("/(tabs)/orders")}
+            className="mt-4 items-center rounded-xl border border-base-300 bg-base-100 py-3"
+          >
+            <Text className="font-semibold">View my orders</Text>
+          </Pressable>
+
+          <Pressable
             onPress={() => void signOut()}
-            className="mt-4 items-center rounded-xl border border-red-200 bg-red-50 py-3"
+            className="mt-3 items-center rounded-xl border border-red-200 bg-red-50 py-3"
           >
             <Text className="font-semibold text-red-700">Sign out</Text>
           </Pressable>

@@ -44,6 +44,11 @@ type CartContextValue = {
   ) => Promise<void>;
   setQuantity: (productId: number, quantity: number) => Promise<void>;
   removeItem: (productId: number) => Promise<void>;
+  /**
+   * Empties the cart on whichever backend is active — the server cart for a
+   * signed-in shopper, AsyncStorage for a guest. Used after checkout is accepted.
+   */
+  clear: () => Promise<void>;
   /** Wipes the local guest cart, e.g. from the account screen. */
   clearLocalCart: () => Promise<void>;
 };
@@ -60,6 +65,11 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   // merge would re-run on every render of the token-bearing app, re-posting
   // the same guest items and inflating quantities.
   const mergedFor = useRef<string | null>(null);
+
+  // Mirror of `items` so `clear` can read the current lines without being
+  // re-created on every cart change.
+  const itemsRef = useRef<CartLine[]>(items);
+  itemsRef.current = items;
 
   /**
    * Load the active cart, and fold in the guest cart the first time a token
@@ -189,6 +199,25 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     setItems([]);
   }, []);
 
+  const clear = useCallback(async () => {
+    if (!token) {
+      await clearLocalCart();
+      return;
+    }
+    // Remove each line rather than a bulk endpoint: quantity 0 is the existing
+    // delete signal, so this reuses code paths already covered by the cart API.
+    const lines = itemsRef.current;
+    try {
+      await Promise.all(lines.map((l) => updateCartItem(token, l.productId, 0)));
+    } catch (err) {
+      setError(
+        err instanceof ApiError ? err.message : "Could not clear your cart.",
+      );
+    } finally {
+      setItems([]);
+    }
+  }, [token, clearLocalCart]);
+
   const value = useMemo<CartContextValue>(
     () => ({
       items,
@@ -202,6 +231,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       addItem,
       setQuantity,
       removeItem,
+      clear,
       clearLocalCart,
     }),
     [
@@ -211,6 +241,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       addItem,
       setQuantity,
       removeItem,
+      clear,
       clearLocalCart,
     ],
   );

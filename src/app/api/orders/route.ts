@@ -2,10 +2,10 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { desc, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
-import { orderItems, orders, products, users } from "@/db/schema";
+import { cartItems, orderItems, orders, products, users } from "@/db/schema";
 import { auth } from "@/auth";
 import { bearerFrom, verifyMobileToken } from "@/lib/mobileAuth";
-import { initializePayment } from "@/lib/paystack";
+import { initializePayment, type InitializeResponse } from "@/lib/paystack";
 import {
   DEFAULT_DELIVERY_TYPE,
   NIGERIAN_STATES,
@@ -37,6 +37,10 @@ const CheckoutSchema = z.object({
 
 export async function POST(req: Request) {
   const session = await auth();
+  // Mobile shoppers authenticate with an HMAC bearer token rather than a
+  // session cookie, so resolve the owner from whichever credential arrived.
+  // A bearer token wins when both are present: it is the explicit intent.
+  const mobileUser = await verifyMobileToken(bearerFrom(req));
 
   let body: unknown;
   try {
@@ -125,7 +129,8 @@ const totalInKobo = subtotalInKobo + deliveryChargeInKobo;
   const reference = `order_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
 
   // Guests may check out, so fall back to a placeholder owner row.
-  const userId = session?.user?.id ?? (await ensureUser(email, customerName));
+  const userId =
+    mobileUser?.id ?? session?.user?.id ?? (await ensureUser(email, customerName));
 
   const [order] = await db
     .insert(orders)
@@ -161,12 +166,36 @@ const totalInKobo = subtotalInKobo + deliveryChargeInKobo;
 
   const origin = process.env.NEXT_PUBLIC_APP_URL ?? new URL(req.url).origin;
 
-  const payment = await initializePayment({
-    email,
-    amountInKobo: totalInKobo,
-    reference,
-    callbackUrl: `${origin}/checkout/verify?reference=${reference}`,
-  });
+  let payment: InitializeResponse;
+  try {
+    payment = await initializePayment({
+      email,
+      amountInKobo: totalInKobo,
+      reference,
+      callbackUrl: `${origin}/checkout/verify?reference=${reference}`,
+    });
+  } catch (err) {
+    // The order rows are already written, so without this the shopper would have
+    // an unpayable "pending" order that also blocks nothing. Mark it failed and
+    // surface the real reason instead of handing back a broken redirect.
+    await db
+      .update(orders)
+      .set({ status: "failed" })
+      .where(eq(orders.id, order!.id));
+
+    console.error("Paystack initialisation failed", { orderId: order!.id, err });
+    return NextResponse.json(
+      {
+        error:
+          "We could not start the payment. No charge was made — please try again.",
+      },
+      { status: 502 },
+    );
+  }
+
+  // The cart is only consumed once payment is genuinely in progress, so a
+  // failed initialisation leaves the shopper's cart intact.
+  await db.delete(cartItems).where(eq(cartItems.userId, userId));
 
   return NextResponse.json({
     orderId: order!.id,

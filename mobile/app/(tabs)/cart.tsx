@@ -1,3 +1,4 @@
+import { router } from "expo-router";
 import React, { useState } from "react";
 import {
   ActivityIndicator,
@@ -144,7 +145,8 @@ export default function CartScreen() {
         </View>
 
         <Pressable
-          disabled={busy}
+          disabled={busy || items.length === 0}
+          onPress={() => router.push("/checkout")}
           className="mt-4 items-center rounded-xl bg-primary py-3 disabled:opacity-60"
         >
           <Text className="font-semibold text-white">Proceed to checkout</Text>
