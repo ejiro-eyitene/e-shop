@@ -3,15 +3,17 @@ import { z } from "zod";
 import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { cartItems, products } from "@/db/schema";
-import { bearerFrom, verifyMobileToken } from "@/lib/mobileAuth";
+import { resolveCartUser } from "@/lib/cartUser";
 
 /**
- * Folds a guest's AsyncStorage cart into the signed-in user's database cart.
+ * Folds a guest's local cart into the signed-in user's database cart.
  *
- * Called once right after login. Quantities are summed per product and then
- * clamped to current stock, so merging can never create an over-large line.
- * Unknown products are reported back rather than silently dropped, letting the
- * app tell the shopper why something disappeared.
+ * Called once right after login, from either client: the web storefront hands
+ * over its localStorage contents and the native app its AsyncStorage contents.
+ * Quantities are summed per product and then clamped to current stock, so
+ * merging can never create an over-large line. Unknown products are reported
+ * back rather than silently dropped, letting the app tell the shopper why
+ * something disappeared.
  */
 
 const MergeSchema = z.object({
@@ -27,13 +29,14 @@ const MergeSchema = z.object({
 });
 
 export async function POST(req: Request) {
-  const user = await verifyMobileToken(bearerFrom(req));
-  if (!user) {
+  const auth = await resolveCartUser(req);
+  if (!auth) {
     return NextResponse.json(
       { error: "Sign in to sync your cart." },
       { status: 401 },
     );
   }
+  const userId = auth.id;
 
   let body: unknown;
   try {
@@ -88,7 +91,7 @@ export async function POST(req: Request) {
       .select({ quantity: cartItems.quantity })
       .from(cartItems)
       .where(
-        and(eq(cartItems.userId, user.id), eq(cartItems.productId, productId)),
+        and(eq(cartItems.userId, userId), eq(cartItems.productId, productId)),
       )
       .limit(1);
 
@@ -106,7 +109,7 @@ export async function POST(req: Request) {
 
     await db
       .insert(cartItems)
-      .values({ userId: user.id, productId, quantity: total })
+      .values({ userId, productId, quantity: total })
       .onConflictDoUpdate({
         target: [cartItems.userId, cartItems.productId],
         set: { quantity: total, updatedAt: new Date() },
@@ -128,7 +131,7 @@ export async function POST(req: Request) {
     })
     .from(cartItems)
     .innerJoin(products, eq(cartItems.productId, products.id))
-    .where(eq(cartItems.userId, user.id))
+    .where(eq(cartItems.userId, userId))
     .orderBy(cartItems.createdAt);
 
   return NextResponse.json({

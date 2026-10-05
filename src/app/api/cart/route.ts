@@ -3,20 +3,21 @@ import { z } from "zod";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { cartItems, products } from "@/db/schema";
-import { bearerFrom, verifyMobileToken } from "@/lib/mobileAuth";
-import type { MobileUser } from "@/lib/mobileAuth";
+import { resolveCartUser } from "@/lib/cartUser";
 
 /**
- * Server-side cart for signed-in native clients.
+ * Server-side cart, shared by the web storefront and the native app.
  *
- * Guests keep their cart in AsyncStorage and merge it via /api/cart/merge, so
- * every route here requires a valid bearer token.
+ * Both clients read and write the same cart_items rows, so a cart built in a
+ * browser is visible in the app and vice versa. Guests keep their cart in
+ * localStorage (web) or AsyncStorage (mobile) and merge it once signed in, so
+ * every route here requires an authenticated user of either kind.
  */
 
 async function requireUser(req: Request): Promise<
-  { user: MobileUser } | { error: NextResponse }
+  { user: { id: string } } | { error: NextResponse }
 > {
-  const user = await verifyMobileToken(bearerFrom(req));
+  const user = await resolveCartUser(req);
   if (!user) {
     return {
       error: NextResponse.json(

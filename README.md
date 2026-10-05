@@ -167,8 +167,13 @@ src/
     mailgun.ts            Order confirmation email
     formatters.ts         Kobo -> Naira
     dbFallback.ts         Graceful degradation when the DB is unreachable
+    cart.ts               Browser client for the shared server cart
+    cartUser.ts           Resolves a shopper from a session cookie OR bearer token
+    mobileAuth.ts         HMAC bearer tokens for the native app
+    shipping.ts           Delivery fees, payment channels, Nigerian states
   components/
-    cart/CartProvider.tsx Client cart (localStorage) + reducer
+    cart/CartProvider.tsx Cart state: server-backed when signed in, localStorage
+                           for guests, merged on login + reducer
     layout/Navbar.tsx     Nav with auth state and cart badge
     product/              Add-to-cart button
   app/
@@ -183,11 +188,71 @@ src/
     auth/error/           Friendly Auth.js failure page
     orders/               Order history (requires sign-in)
     api/auth/[...nextauth]/
-    api/orders/           Creates the order, starts Paystack payment
-  lib/
-    products.ts           Catalogue queries: search, price range, sort
-  instrumentation.ts      Loads .env.local before any module evaluates
+    api/orders/           POST checkout + GET order history (both credential types)
+    api/cart/             Shared server cart (session cookie or bearer token)
+    api/cart/merge/       Folds a guest cart into the account on sign-in
+    api/mobile/session/   Mints a one-time sign-in code for the native app
+    api/mobile/token/     Swaps a sign-in code for an HMAC bearer token
+    mobile/authorize/     Web page the native app opens to complete Google sign-in
+mobile/                  Expo app: shop, cart, checkout, orders, account
+  lib/                   API client, shipping constants, SecureStore session
+  context/               Auth + cart providers
 ```
+
+## The mobile app
+
+`mobile/` is an Expo (React Native) app that shares accounts, cart and order
+history with the web storefront — both read and write the same PostgreSQL rows.
+
+### How the two clients authenticate
+
+React Native cannot read the Auth.js session cookie, so the native app uses its
+own short-lived HMAC bearer token:
+
+1. The app opens `/mobile/authorize` in a browser tab.
+2. The shopper signs in with Google; the web app mints a **single-use code**
+   valid for five minutes (`POST /api/mobile/session`).
+3. Only that code travels back through the `eshop://auth` deep link.
+4. The app swaps the code for a bearer token (`POST /api/mobile/token`) and
+   stores it in `expo-secure-store`.
+
+The bearer token itself is never placed in a URL, so it cannot leak through
+browser history, referrers or logs.
+
+`src/lib/cartUser.ts` accepts **either** credential, so `/api/cart`,
+`/api/cart/merge` and `POST /api/orders` work unchanged from both clients. A
+bearer token takes precedence when both are present.
+
+### Cart synchronisation
+
+| State | Web | Mobile |
+| --- | --- | --- |
+| Guest | `localStorage` | `AsyncStorage` |
+| Signed in | `cart_items` table | `cart_items` table |
+
+When a guest signs in, their local cart is merged into the account via
+`/api/cart/merge`, which sums duplicate lines and clamps each to current stock.
+After that both clients are reading and writing the same server cart, so a change
+made on the web is visible in the app and vice versa.
+
+### Running it
+
+```bash
+cd mobile
+npm install
+npx expo start          # then press `a` for Android or `i` for iOS
+```
+
+Set `EXPO_PUBLIC_API_URL` to point the app at a different backend; it defaults to
+the production deployment.
+
+### Not yet verified
+
+Live payment is untested end to end. `PAYSTACK_SECRET_KEY` was not available
+during development, so the Paystack redirect, the post-payment cart refresh and
+the paid-order confirmation have only been exercised against the failure path
+(which correctly marks the order `failed`, leaves the cart intact and returns a
+502). Supply real keys before relying on checkout.
 
 ## Search and filtering
 

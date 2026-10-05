@@ -6,7 +6,26 @@ import { naira } from "@/lib/formatters";
 import { DELIVERY_TYPES } from "@/lib/shipping";
 
 export default function CartPage() {
-  const { items, itemCount, subtotalInKobo, setQuantity, removeItem } = useCart();
+  const {
+    items,
+    itemCount,
+    subtotalInKobo,
+    setQuantity,
+    removeItem,
+    syncing,
+    syncError,
+  } = useCart();
+
+  // Showing "empty" while the synced cart is still loading would briefly flash a
+  // false message on every page load for signed-in shoppers.
+  if (syncing) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 gap-3">
+        <span className="loading loading-spinner loading-lg" />
+        <p className="text-base-content/60">Loading your cart…</p>
+      </div>
+    );
+  }
 
   if (items.length === 0) {
     return (
@@ -16,6 +35,11 @@ export default function CartPage() {
         <p className="text-base-content/60 mb-6">
           Browse the catalogue and add something you like.
         </p>
+        {syncError ? (
+          <div className="alert alert-error mb-6 max-w-md mx-auto">
+            <span>{syncError}</span>
+          </div>
+        ) : null}
         <Link href="/" className="btn btn-primary">
           Continue shopping
         </Link>
@@ -26,6 +50,12 @@ export default function CartPage() {
   return (
     <div>
       <h1 className="text-3xl font-bold mb-6">Your Cart</h1>
+
+      {syncError ? (
+        <div className="alert alert-warning mb-4">
+          <span>{syncError}</span>
+        </div>
+      ) : null}
 
       <div className="grid lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-3">
